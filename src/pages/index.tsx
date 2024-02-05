@@ -1,9 +1,5 @@
-import Head from "next/head";
-import Image from "next/image";
-import { Inter } from "next/font/google";
-import styles from "@app/styles/Home.module.css";
-import { GetServerSideProps } from "next";
 import { useEffect, useState } from "react";
+import Head from "next/head";
 import { Box, Button, Stack } from "@mui/material";
 import styled from "@emotion/styled";
 import { PrismLight as SyntaxHighlighter } from "react-syntax-highlighter";
@@ -16,14 +12,6 @@ const Main = styled.main`
   display: flex;
   flex-direction: column;
   align-items: center;
-`;
-
-const Code = styled.code`
-  font-family: "Fira Code", monospace;
-`;
-
-const Pre = styled.pre`
-  font-family: "Fira Code", monospace;
 `;
 
 interface WebSocketMessage {
@@ -48,7 +36,9 @@ export default function Home() {
 
     ws.onmessage = (ev) => {
       console.log("WebSocket message: ", ev.data);
+
       const message: WebSocketMessage = JSON.parse(ev.data);
+
       setCache((prev) => ({
         ...prev,
         [message.key]: message.data,
@@ -71,10 +61,6 @@ export default function Home() {
       ws.close();
     };
   }, []);
-
-  function showData(key: string) {
-    setActiveKey(key);
-  }
 
   console.log({
     cache,

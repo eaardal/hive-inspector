@@ -1,40 +1,131 @@
-This is a [Next.js](https://nextjs.org/) project bootstrapped with [`create-next-app`](https://github.com/vercel/next.js/tree/canary/packages/create-next-app).
+# Hive Inspector
 
-## Getting Started
+[Hive](https://docs.hivedb.dev/) is a simple on-device database for Flutter/Dart.
 
-First, run the development server:
+However, a common issue with light-weight custom databases is the lack of inspector tools for reading its content.
 
-```bash
-npm run dev
-# or
-yarn dev
-# or
-pnpm dev
-# or
-bun dev
+This simple tool gives you a way to view the contents of a HiveBox while developing.
+
+> :warning: This is just a proof of concept, not an active project.
+
+## How it works
+
+This project has a server and a frontend. The server listens on port 3001 for POST requests with HiveBox data as JSON:
+
+```
+http://localhost:3001/api/:HIVE_BOX_NAME
 ```
 
-Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
+If the Hive box name is "categories" the URL would be `/api/categories`.
 
-You can start editing the page by modifying `pages/index.tsx`. The page auto-updates as you edit the file.
+The server sends the given HiveBox data to the frontend via websockets where the data is displayed as JSON.
 
-[API routes](https://nextjs.org/docs/api-routes/introduction) can be accessed on [http://localhost:3000/api/hello](http://localhost:3000/api/hello). This endpoint can be edited in `pages/api/hello.ts`.
+On the Flutter side, the data must be sent over HTTP when in development environment:
 
-The `pages/api` directory is mapped to `/api/*`. Files in this directory are treated as [API routes](https://nextjs.org/docs/api-routes/introduction) instead of React pages.
+```dart
+// hive_inspector_utils.dart
+import 'dart:convert';
+import 'dart:io';
+import 'package:flex/infrastructure/json_serializable.dart';
+import 'package:http/http.dart' as http;
 
-This project uses [`next/font`](https://nextjs.org/docs/basic-features/font-optimization) to automatically optimize and load Inter, a custom Google Font.
+class HiveInspectorUtils {
+  static String apiEndpoint = "http://localhost:3001/api";
 
-## Learn More
+  static Future<void> sendHiveBoxToServer(
+    String boxName,
+    Iterable<JsonSerializable> boxData,
+  ) async {
+    var body = jsonEncode(boxData.map((b) => b.toJson()).toList());
+    var url = Uri.parse("$apiEndpoint/$boxName");
 
-To learn more about Next.js, take a look at the following resources:
+    var res = await http.post(url, body: body, headers: {
+      HttpHeaders.contentTypeHeader: "application/json",
+    });
 
-- [Next.js Documentation](https://nextjs.org/docs) - learn about Next.js features and API.
-- [Learn Next.js](https://nextjs.org/learn) - an interactive Next.js tutorial.
+    res.statusCode == 200
+        ? Log.d("Successfully sent $boxName to server")
+        : Log.e("Failed to send $boxName to server: ${res.body}");
 
-You can check out [the Next.js GitHub repository](https://github.com/vercel/next.js/) - your feedback and contributions are welcome!
+    return Future.value();
+  }
+}
+```
 
-## Deploy on Vercel
+For completeness, here's more code of how it's used on the Flutter side:
 
-The easiest way to deploy your Next.js app is to use the [Vercel Platform](https://vercel.com/new?utm_medium=default-template&filter=next.js&utm_source=create-next-app&utm_campaign=create-next-app-readme) from the creators of Next.js.
+```dart
+class HiveCategoryRepository implements CategoryRepository {
+  static const String boxName = "categories";
 
-Check out our [Next.js deployment documentation](https://nextjs.org/docs/deployment) for more details.
+  final bool _enableHiveInspector;
+  late Box<CategoryDTO> _categoriesBox;
+
+  final BehaviorSubject<Iterable<CategoryDTO>> _rx = BehaviorSubject();
+
+  HiveCategoryRepository(this._enableHiveInspector);
+
+  @override
+  Future<void> initialize() async {
+    Log.d("Initializing ${runtimeType.toString()}");
+
+    // Open the hive box
+    _categoriesBox = await Hive.openBox<CategoryDTO>(boxName);
+
+    // Add the current hive box state to the RX subject as the initial state.
+    _rx.add(_categoriesBox.values);
+    _inspectHiveBox();
+
+    // Listen for changes to the hive box and set the RX subject's state to the current box state whenever changes occur.
+    _categoriesBox.watch().forEach((event) {
+      _rx.add(_categoriesBox.values);
+      _inspectHiveBox();
+    });
+  }
+
+  void _inspectHiveBox() {
+    if (_enableHiveInspector) {
+      HiveInspectorUtils.sendHiveBoxToServer(boxName, _categoriesBox.values);
+    }
+  }
+
+  // ...Implementation of CRUD repository methods
+}
+```
+
+The `initialize` method is invoked during app startup before the root widget is rendered.
+
+Also, all models stored in Hive boxes implements the `JsonSerializable` abstract class:
+
+```dart
+// json_serializable.dart
+abstract class JsonSerializable {
+  Map<String, dynamic> toJson();
+}
+
+// models/category_dto.dart
+import 'package:hive/hive.dart';
+
+part 'category_dto.g.dart';
+
+@HiveType(typeId: KnownHiveTypes.categoryTypeId)
+class CategoryDTO implements JsonSerializable {
+  @HiveField(0)
+  final String id;
+
+  @HiveField(1)
+  final String name;
+
+  CategoryDTO(this.id, this.name);
+
+  @override
+  Map<String, dynamic> toJson() {
+    return {
+      "id": id,
+      "name": name,
+    };
+  }
+}
+```
+
+This makes it easy for the `HiveInspectorUtils.sendHiveBoxToServer` function to accept `Iterable<JsonSerializable> boxData` to serialize whatever Hive box data model to a HTTP request body payload as JSON.
