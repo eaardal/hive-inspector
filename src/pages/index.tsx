@@ -5,6 +5,7 @@ import styled from "@emotion/styled";
 import { PrismLight as SyntaxHighlighter } from "react-syntax-highlighter";
 import json from "react-syntax-highlighter/dist/cjs/languages/prism/json";
 import { nightOwl } from "react-syntax-highlighter/dist/cjs/styles/prism";
+import { Alert } from "@app/components/Alert";
 
 SyntaxHighlighter.registerLanguage("json", json);
 
@@ -13,6 +14,8 @@ const Main = styled.main`
   flex-direction: column;
   align-items: center;
 `;
+
+type ConnectionStatus = "connected" | "disconnected" | "error";
 
 interface WebSocketMessage {
   key: string;
@@ -26,45 +29,68 @@ interface Cache {
 export default function Home() {
   const [cache, setCache] = useState<Cache>({});
   const [activeKey, setActiveKey] = useState<string | null>(null);
+  const [connectionStatus, setConnectionStatus] =
+    useState<ConnectionStatus>("disconnected");
+  const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
-    const ws = new WebSocket("ws://localhost:3001");
+    let ws: WebSocket | null = null;
+    let intervalId: NodeJS.Timeout | null = null;
 
-    ws.onopen = () => {
-      console.log("WebSocket connected");
+    const connect = () => {
+      ws = new WebSocket("ws://localhost:3001");
+
+      ws.onopen = () => {
+        console.log("WebSocket connected");
+        setConnectionStatus("connected");
+
+        if (intervalId) {
+          clearInterval(intervalId);
+          intervalId = null;
+        }
+      };
+
+      ws.onmessage = (ev) => {
+        console.log("WebSocket message: ", ev.data);
+
+        const message: WebSocketMessage = JSON.parse(ev.data);
+
+        setCache((prev) => ({
+          ...prev,
+          [message.key]: message.data,
+        }));
+
+        if (!activeKey) {
+          setActiveKey(message.key);
+        }
+      };
+
+      ws.onerror = (error) => {
+        console.log("WebSocket error: ", error);
+        setConnectionStatus("error");
+        setError("An unknown error occurred: " + JSON.stringify(error));
+      };
+
+      ws.onclose = () => {
+        console.log("WebSocket disconnected");
+        setConnectionStatus("disconnected");
+
+        if (!intervalId) {
+          intervalId = setInterval(connect, 2000);
+        }
+      };
     };
 
-    ws.onmessage = (ev) => {
-      console.log("WebSocket message: ", ev.data);
-
-      const message: WebSocketMessage = JSON.parse(ev.data);
-
-      setCache((prev) => ({
-        ...prev,
-        [message.key]: message.data,
-      }));
-
-      if (!activeKey) {
-        setActiveKey(message.key);
-      }
-    };
-
-    ws.onerror = (error) => {
-      console.log("WebSocket error: ", error);
-    };
-
-    ws.onclose = () => {
-      console.log("WebSocket disconnected");
-    };
+    connect();
 
     return () => {
-      ws.close();
+      ws?.close();
+
+      if (intervalId) {
+        clearInterval(intervalId);
+      }
     };
   }, []);
-
-  console.log({
-    cache,
-  });
 
   return (
     <>
@@ -105,6 +131,18 @@ export default function Home() {
         />
       </Head>
       <Main>
+        {connectionStatus === "error" && error !== null && (
+          <Alert text={error} severity="error" />
+        )}
+        {connectionStatus === "disconnected" && (
+          <Alert
+            text="Disconnected from the WebSocket server"
+            severity="warning"
+          />
+        )}
+        {connectionStatus === "connected" && (
+          <Alert text="Connected to the WebSocket server" severity="success" />
+        )}
         <Box padding={4}>
           <Stack direction="row" justifyContent="center">
             {Object.entries(cache).map(([key, _data]) => (
@@ -122,6 +160,25 @@ export default function Home() {
             <SyntaxHighlighter language="json" style={nightOwl}>
               {JSON.stringify(cache[activeKey], null, 2)}
             </SyntaxHighlighter>
+          )}
+          {!activeKey && (
+            <Box
+              padding={4}
+              sx={{ borderRadius: 8, backgroundColor: "#353535" }}
+            >
+              <p>
+                No data has been received yet. Make a POST request to
+                http://localhost:3001/api/myhivebox to get started.
+              </p>
+              <p>Example:</p>
+              <code>
+                <pre>
+                  {
+                    'curl --request POST -H "Content-Type: application/json" --url http://localhost:3001/api/myhivebox -d \'{"foo":"bar"}\''
+                  }
+                </pre>
+              </code>
+            </Box>
           )}
         </Box>
       </Main>

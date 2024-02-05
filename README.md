@@ -55,6 +55,7 @@ class HiveInspectorUtils {
 For completeness, here's more code of how it's used on the Flutter side:
 
 ```dart
+// category_repository.dart
 class HiveCategoryRepository implements CategoryRepository {
   static const String boxName = "categories";
 
@@ -89,11 +90,11 @@ class HiveCategoryRepository implements CategoryRepository {
     }
   }
 
-  // ...Implementation of CRUD repository methods
+  // ...Implementation of CRUD and RX streaming methods
 }
 ```
 
-The `initialize` method is invoked during app startup before the root widget is rendered.
+The repository's `initialize` method is invoked during app startup before the root widget is rendered.
 
 Also, all models stored in Hive boxes implements the `JsonSerializable` abstract class:
 
@@ -129,3 +130,38 @@ class CategoryDTO implements JsonSerializable {
 ```
 
 This makes it easy for the `HiveInspectorUtils.sendHiveBoxToServer` function to accept `Iterable<JsonSerializable> boxData` to serialize whatever Hive box data model to a HTTP request body payload as JSON.
+
+## How to run
+
+1. Run the web server
+
+Uses [bun](https://bun.sh) instead of NodeJS due to the ease of running TypeScript directly.
+
+```shell
+npm run server
+# OR
+bun server.ts
+```
+
+Can test it with any HTTP/REST tester such as Posman or cURL:
+
+```shell
+curl --request POST -H "Content-Type: application/json" --url http://localhost:3001/api/myhivebox -d '{"foo":"bar"}'
+```
+
+A log statement in the console should confirm the requst was received successfully.
+
+2. Run the NextJS frontend
+
+```shell
+npm run dev
+# OR
+npm run build
+npm start
+```
+
+Go to http://localhost:3000
+
+Sending the test POST request again should display the data automatically on the webpage.
+
+3. Send Hive box data from your Flutter app. See code snippets above.
